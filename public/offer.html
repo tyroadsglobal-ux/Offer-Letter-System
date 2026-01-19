@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Offer Letter | TYROADS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+<div class="bg-white p-6 rounded shadow w-full max-w-md">
+  <h2 class="text-2xl font-bold mb-4 text-center">Offer Letter</h2>
+
+  <div id="offerBox" class="space-y-2 text-sm">
+    <p><b>Name:</b> <span id="name"></span></p>
+    <p><b>Position:</b> <span id="position"></span></p>
+    <p><b>Salary:</b> ₹<span id="salary"></span></p>
+    <p><b>Status:</b> <span id="status" class="font-semibold"></span></p>
+  </div>
+
+  <div id="buttonBox" class="mt-6 flex gap-2">
+    <button onclick="respond('ACCEPTED')"
+      class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded">
+      Accept
+    </button>
+
+    <button onclick="respond('REJECTED')"
+      class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded">
+      Reject
+    </button>
+  </div>
+
+  <p id="msg" class="text-center text-sm mt-4"></p>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const token = params.get("token");
+
+console.log("Token from URL:", token);
+
+async function loadOffer() {
+  try {
+    if (!token) {
+      document.getElementById("msg").innerText = "❌ No token provided";
+      document.getElementById("msg").className = "text-red-600 font-semibold";
+      document.getElementById("offerBox").style.display = "none";
+      document.getElementById("buttonBox").style.display = "none";
+      return;
+    }
+
+    const res = await fetch(`/offer-details?token=${token}`);
+    const data = await res.json();
+
+    console.log("API Response:", data);
+
+    if (!data.success) {
+      document.getElementById("msg").innerText = "❌ " + (data.message || "Invalid or expired offer.");
+      document.getElementById("msg").className = "text-red-600 font-semibold";
+      document.getElementById("offerBox").style.display = "none";
+      document.getElementById("buttonBox").style.display = "none";
+      return;
+    }
+
+    // Populate offer details
+    document.getElementById("name").innerText = data.offer.candidate_name;
+    document.getElementById("position").innerText = data.offer.position;
+    document.getElementById("salary").innerText = data.offer.salary;
+    document.getElementById("status").innerText = data.offer.status;
+
+    // Style status based on value
+    const statusEl = document.getElementById("status");
+    if (data.offer.status === "ACCEPTED") {
+      statusEl.className = "font-semibold text-green-600";
+      document.getElementById("buttonBox").style.display = "none";
+      document.getElementById("msg").innerText = "✅ This offer has been accepted";
+      document.getElementById("msg").className = "text-green-600 font-semibold";
+    } else if (data.offer.status === "REJECTED") {
+      statusEl.className = "font-semibold text-red-600";
+      document.getElementById("buttonBox").style.display = "none";
+      document.getElementById("msg").innerText = "❌ This offer has been rejected";
+      document.getElementById("msg").className = "text-red-600 font-semibold";
+    } else {
+      statusEl.className = "font-semibold text-yellow-600";
+    }
+
+  } catch (err) {
+    console.error("Error:", err);
+    document.getElementById("msg").innerText = "❌ Error loading offer. Check console.";
+    document.getElementById("msg").className = "text-red-600 font-semibold";
+    document.getElementById("offerBox").style.display = "none";
+    document.getElementById("buttonBox").style.display = "none";
+  }
+}
+
+async function respond(status) {
+  try {
+    console.log("Responding with:", status);
+
+    const res = await fetch("/offer-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, status })
+    });
+
+    const data = await res.json();
+    console.log("Response:", data);
+
+    if (res.ok) {
+      document.getElementById("msg").innerText = "✅ " + data.message;
+      document.getElementById("msg").className = "text-green-600 font-semibold";
+      document.getElementById("buttonBox").style.display = "none";
+      
+      // Update status display
+      setTimeout(() => loadOffer(), 500);
+    } else {
+      document.getElementById("msg").innerText = "❌ " + data.message;
+      document.getElementById("msg").className = "text-red-600 font-semibold";
+    }
+
+  } catch (err) {
+    console.error("Error:", err);
+    document.getElementById("msg").innerText = "❌ Server error";
+    document.getElementById("msg").className = "text-red-600 font-semibold";
+  }
+}
+
+loadOffer();
+</script>
+
+</body>
+</html>

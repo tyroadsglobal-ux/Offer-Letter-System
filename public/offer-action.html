@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Offer Decision</title>
+</head>
+<body>
+  <h2>Offer Decision</h2>
+
+  <button onclick="updateStatus('ACCEPTED')">Accept</button>
+  <button onclick="updateStatus('REJECTED')">Reject</button>
+
+  <p id="msg"></p>
+
+  <script>
+    const token = new URLSearchParams(window.location.search).get("token");
+
+    async function updateStatus(status) {
+      const res = await fetch("/offer-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, status })
+      });
+
+      const data = await res.json();
+      document.getElementById("msg").innerText = data.message;
+    }
+  </script>
+</body>
+</html>
