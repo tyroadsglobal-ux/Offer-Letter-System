@@ -33,18 +33,20 @@ app.use(
 );
 
 // ===================== DATABASE =====================
-const db = mysql.createPool({
+const mysql = require("mysql2/promise");
+const fs = require("fs");
+
+const connection = await mysql.createConnection({
   host: process.env.DB_HOST,
-  port: process.env.DB_PORT || 3306,
+  port: process.env.DB_PORT,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   ssl: {
-    ca: fs.readFileSync(path.resolve(__dirname, process.env.DB_SSL_CA_PATH)),
-  },
-  waitForConnections: true,
-  connectionLimit: 10,
+    rejectUnauthorized: true
+  }
 });
+
 
 // Test DB connection
 (async () => {
@@ -139,3 +141,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
