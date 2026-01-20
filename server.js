@@ -1,5 +1,5 @@
+// server.js
 require("dotenv").config();
-
 const express = require("express");
 const mysql = require("mysql2/promise");
 const nodemailer = require("nodemailer");
@@ -24,26 +24,27 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use(
   session({
     name: "offer-session",
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || "default_session_secret", // REQUIRED
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV === "production", // HTTPS only in prod
+      maxAge: 1000 * 60 * 60, // 1 hour
     },
   })
 );
 
-/* ===================== DATABASE (AIVEN SAFE) ===================== */
+/* ===================== DATABASE (RENDER/AIVEN SAFE) ===================== */
 const db = mysql.createPool({
   host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
+  port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   ssl: {
-    rejectUnauthorized: true,
+    rejectUnauthorized: false, // <-- fixes self-signed certificate error
   },
   waitForConnections: true,
   connectionLimit: 10,
@@ -67,7 +68,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-transporter.verify(err => {
+transporter.verify((err) => {
   if (err) console.error("❌ Mail error:", err.message);
   else console.log("✅ Mail server ready");
 });
@@ -203,4 +204,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-
