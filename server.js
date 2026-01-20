@@ -12,6 +12,7 @@ const nodemailer = require("nodemailer");
 const app = express();
 const upload = multer();
 
+// ===================== MIDDLEWARE =====================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -27,34 +28,32 @@ app.use(
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      maxAge: 1000 * 60 * 60, // 1 hour
+      maxAge: 1000 * 60 * 60,
     },
   })
 );
 
 // ===================== DATABASE =====================
-const mysql = require("mysql2/promise");
-const fs = require("fs");
+let db;
 
-const connection = await mysql.createConnection({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  ssl: {
-    rejectUnauthorized: true
-  }
-});
-
-
-// Test DB connection
 (async () => {
   try {
+    db = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      ssl: {
+        rejectUnauthorized: true,
+      },
+    });
+
     await db.query("SELECT 1");
     console.log("✅ Database connected securely via SSL");
   } catch (err) {
     console.error("❌ Database connection failed:", err.message);
+    process.exit(1);
   }
 })();
 
@@ -63,70 +62,77 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public/login.html"));
 });
 
-// Dummy isHR middleware (replace with real auth logic)
-const isHR = (req, res, next) => {
-  next();
-};
+// Dummy HR middleware
+const isHR = (req, res, next) => next();
 
 // ===================== CREATE OFFER =====================
 app.post("/create-offer", isHR, upload.none(), async (req, res) => {
   try {
     const { name, email, position, salary } = req.body;
-    if (!name || !email || !position || !salary)
+
+    if (!name || !email || !position || !salary) {
       return res.status(400).json({ message: "Missing fields" });
+    }
 
     const token = uuidv4();
     const offerLink = `${process.env.HOST_URL}/offer.html?token=${token}`;
 
-    // Generate PDF (replace with your function)
-    // const pdfPath = await generateOfferPDF({ name, position, salary });
-
-    // Send email (configure your transporter)
-    // await transporter.sendMail({ ... });
-
     await db.execute(
-      `INSERT INTO offers (candidate_name,email,position,salary,token,status)
-       VALUES (?,?,?,?,?,'PENDING')`,
+      `INSERT INTO offers 
+       (candidate_name, email, position, salary, token, status)
+       VALUES (?, ?, ?, ?, ?, 'PENDING')`,
       [name, email, position, salary, token]
     );
 
     res.json({ message: "Offer created", token, link: offerLink });
   } catch (err) {
-    console.error(err);
+    console.error("❌ OFFER ERROR:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
 // ===================== DASHBOARD =====================
 app.get("/hr-dashboard", isHR, async (req, res) => {
-  const [rows] = await db.execute("SELECT * FROM offers ORDER BY id DESC");
+  const [rows] = await db.execute(
+    "SELECT * FROM offers ORDER BY id DESC"
+  );
   res.json(rows);
 });
 
 // ===================== OFFER DETAILS =====================
 app.get("/offer-details", async (req, res) => {
   const { token } = req.query;
+
   const [rows] = await db.execute(
     "SELECT candidate_name, position, salary, status FROM offers WHERE token=?",
     [token]
   );
-  if (!rows.length) return res.status(404).json({ message: "Offer not found" });
+
+  if (!rows.length) {
+    return res.status(404).json({ message: "Offer not found" });
+  }
+
   res.json({ success: true, offer: rows[0] });
 });
 
 // ===================== OFFER ACTION =====================
 app.post("/offer-action", async (req, res) => {
   const { token, status } = req.body;
-  if (!token || !["ACCEPTED", "REJECTED"].includes(status))
+
+  if (!token || !["ACCEPTED", "REJECTED"].includes(status)) {
     return res.status(400).json({ message: "Invalid request" });
+  }
 
   const [result] = await db.execute(
-    `UPDATE offers SET status=?, token=NULL WHERE token=? AND status='PENDING'`,
+    `UPDATE offers 
+     SET status=?, token=NULL 
+     WHERE token=? AND status='PENDING'`,
     [status, token]
   );
 
-  if (!result.affectedRows)
+  if (!result.affectedRows) {
     return res.status(400).json({ message: "Offer already processed" });
+  }
 
   res.json({ message: `Offer ${status}` });
 });
@@ -141,4 +147,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-
