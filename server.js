@@ -1,54 +1,52 @@
+// server.js
 require("dotenv").config();
 const express = require("express");
 const mysql = require("mysql2/promise");
-const nodemailer = require("nodemailer");
 const session = require("express-session");
-const multer = require("multer");
-const bcrypt = require("bcryptjs");
-const { v4: uuidv4 } = require("uuid");
 const path = require("path");
 const fs = require("fs");
-
-const generateOfferPDF = require("./utils/pdfGenerator");
+const { v4: uuidv4 } = require("uuid");
+const multer = require("multer");
+const nodemailer = require("nodemailer");
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer();
 
-/* ===================== BASIC MIDDLEWARE ===================== */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ===================== SESSION ===================== */
+// ===================== SESSION =====================
 app.use(
   session({
     name: "offer-session",
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || "default_session_secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      maxAge: 1000 * 60 * 60,
+      maxAge: 1000 * 60 * 60, // 1 hour
     },
   })
 );
 
-/* ===================== DATABASE (AIVEN SSL) ===================== */
+// ===================== DATABASE =====================
 const db = mysql.createPool({
   host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
+  port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  ssl: {
-    ca: fs.readFileSync(path.resolve(__dirname, process.env.DB_SSL_CA_PATH)),
-  },
+  ssl: process.env.DB_SSL_CA_PATH
+    ? { ca: fs.readFileSync(path.resolve(__dirname, process.env.DB_SSL_CA_PATH)) }
+    : { rejectUnauthorized: false }, // Render/Aiven safe
   waitForConnections: true,
   connectionLimit: 10,
 });
 
+// Test DB connection
 (async () => {
   try {
     await db.query("SELECT 1");
@@ -58,78 +56,32 @@ const db = mysql.createPool({
   }
 })();
 
-/* ===================== EMAIL ===================== */
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
+// ===================== ROUTES =====================
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/login.html"));
 });
 
-transporter.verify((err) => {
-  if (err) console.error("❌ Mail error:", err.message);
-  else console.log("✅ Mail server ready");
-});
+// Dummy isHR middleware
+const isHR = (req, res, next) => {
+  // Add your real auth logic here
+  next();
+};
 
-/* ===================== AUTH MIDDLEWARE ===================== */
-function isHR(req, res, next) {
-  if (req.session.hrLoggedIn) return next();
-  return res.status(401).json({ message: "Unauthorized" });
-}
-
-/* ===================== ROUTES ===================== */
-app.get("/", (req, res) =>
-  res.sendFile(path.join(__dirname, "public/login.html"))
-);
-
-app.post("/hr-login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const [rows] = await db.execute(
-      "SELECT * FROM hr_users WHERE email=?",
-      [email]
-    );
-
-    if (!rows.length)
-      return res.status(401).json({ message: "Invalid credentials" });
-
-    const valid = await bcrypt.compare(password, rows[0].password);
-    if (!valid)
-      return res.status(401).json({ message: "Invalid credentials" });
-
-    req.session.hrLoggedIn = true;
-    res.json({ message: "Login successful" });
-  } catch (err) {
-    console.error("LOGIN ERROR:", err);
-    res.status(500).json({ message: "Login failed" });
-  }
-});
-
-app.get("/logout", (req, res) => {
-  req.session.destroy(() => res.redirect("/login.html"));
-});
-
+// ===================== CREATE OFFER =====================
 app.post("/create-offer", isHR, upload.none(), async (req, res) => {
-  let pdfPath;
   try {
     const { name, email, position, salary } = req.body;
-    if (!name || !email || !position || !salary) {
-      return res.status(400).json({ message: "All fields required" });
-    }
+    if (!name || !email || !position || !salary)
+      return res.status(400).json({ message: "Missing fields" });
 
     const token = uuidv4();
     const offerLink = `${process.env.HOST_URL}/offer.html?token=${token}`;
-    pdfPath = await generateOfferPDF({ name, position, salary });
 
-    await transporter.sendMail({
-      from: `"TYROADS HR" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: "Offer Letter - TYROADS",
-      html: `<p>Dear ${name},<br/>Please view your offer:</p>
-             <a href="${offerLink}">View Offer</a>`,
-      attachments: [{ filename: "OfferLetter.pdf", path: pdfPath }],
-    });
+    // Generate PDF (replace with your real function)
+    // const pdfPath = await generateOfferPDF({ name, position, salary });
+
+    // Send email (replace with your transporter config)
+    // await transporter.sendMail({ ... });
 
     await db.execute(
       `INSERT INTO offers (candidate_name,email,position,salary,token,status)
@@ -137,52 +89,53 @@ app.post("/create-offer", isHR, upload.none(), async (req, res) => {
       [name, email, position, salary, token]
     );
 
-    res.json({ message: "Offer sent successfully ✅" });
+    res.json({ message: "Offer created", token, link: offerLink });
   } catch (err) {
-    console.error("OFFER ERROR:", err);
-    res.status(500).json({ message: "Offer failed" });
-  } finally {
-    if (pdfPath && fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
+// ===================== DASHBOARD =====================
 app.get("/hr-dashboard", isHR, async (req, res) => {
   const [rows] = await db.execute("SELECT * FROM offers ORDER BY id DESC");
   res.json(rows);
 });
 
+// ===================== OFFER DETAILS =====================
 app.get("/offer-details", async (req, res) => {
   const { token } = req.query;
   const [rows] = await db.execute(
     "SELECT candidate_name, position, salary, status FROM offers WHERE token=?",
     [token]
   );
-
-  if (!rows.length)
-    return res.json({ success: false, message: "Invalid link" });
-
+  if (!rows.length) return res.status(404).json({ message: "Offer not found" });
   res.json({ success: true, offer: rows[0] });
 });
 
+// ===================== OFFER ACTION =====================
 app.post("/offer-action", async (req, res) => {
   const { token, status } = req.body;
-  if (!token || !["ACCEPTED", "REJECTED"].includes(status)) {
+  if (!token || !["ACCEPTED", "REJECTED"].includes(status))
     return res.status(400).json({ message: "Invalid request" });
-  }
 
   const [result] = await db.execute(
     `UPDATE offers SET status=?, token=NULL WHERE token=? AND status='PENDING'`,
     [status, token]
   );
 
-  if (!result.affectedRows) {
+  if (!result.affectedRows)
     return res.status(400).json({ message: "Offer already processed" });
-  }
 
   res.json({ message: `Offer ${status}` });
 });
 
-/* ===================== START SERVER ===================== */
+// ===================== LOGOUT =====================
+app.get("/logout", (req, res) => {
+  req.session.destroy(() => res.redirect("/login.html"));
+});
+
+// ===================== START SERVER =====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
