@@ -39,9 +39,9 @@ const db = mysql.createPool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  ssl: process.env.DB_SSL_CA_PATH
-    ? { ca: fs.readFileSync(path.resolve(__dirname, process.env.DB_SSL_CA_PATH)) }
-    : { rejectUnauthorized: false }, // Render/Aiven safe
+  ssl: {
+    ca: fs.readFileSync(path.resolve(__dirname, process.env.DB_SSL_CA_PATH)),
+  },
   waitForConnections: true,
   connectionLimit: 10,
 });
@@ -61,9 +61,8 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public/login.html"));
 });
 
-// Dummy isHR middleware
+// Dummy isHR middleware (replace with real auth logic)
 const isHR = (req, res, next) => {
-  // Add your real auth logic here
   next();
 };
 
@@ -77,10 +76,10 @@ app.post("/create-offer", isHR, upload.none(), async (req, res) => {
     const token = uuidv4();
     const offerLink = `${process.env.HOST_URL}/offer.html?token=${token}`;
 
-    // Generate PDF (replace with your real function)
+    // Generate PDF (replace with your function)
     // const pdfPath = await generateOfferPDF({ name, position, salary });
 
-    // Send email (replace with your transporter config)
+    // Send email (configure your transporter)
     // await transporter.sendMail({ ... });
 
     await db.execute(
