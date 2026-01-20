@@ -1,13 +1,12 @@
 // server.js
 require("dotenv").config();
+
 const express = require("express");
 const mysql = require("mysql2/promise");
 const session = require("express-session");
 const path = require("path");
-const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const multer = require("multer");
-const nodemailer = require("nodemailer");
 
 const app = express();
 const upload = multer();
@@ -28,7 +27,7 @@ app.use(
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      maxAge: 1000 * 60 * 60,
+      maxAge: 1000 * 60 * 60, // 1 hour
     },
   })
 );
@@ -45,7 +44,7 @@ let db;
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       ssl: {
-        rejectUnauthorized: true,
+        rejectUnauthorized: false, // REQUIRED for Aiven on Render
       },
     });
 
@@ -57,12 +56,22 @@ let db;
   }
 })();
 
+// ===================== DB READY GUARD =====================
+app.use((req, res, next) => {
+  if (!db) {
+    return res
+      .status(503)
+      .json({ message: "Database initializing, please retry" });
+  }
+  next();
+});
+
 // ===================== ROUTES =====================
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public/login.html"));
 });
 
-// Dummy HR middleware
+// Dummy HR middleware (replace later)
 const isHR = (req, res, next) => next();
 
 // ===================== CREATE OFFER =====================
@@ -78,20 +87,24 @@ app.post("/create-offer", isHR, upload.none(), async (req, res) => {
     const offerLink = `${process.env.HOST_URL}/offer.html?token=${token}`;
 
     await db.execute(
-      `INSERT INTO offers 
+      `INSERT INTO offers
        (candidate_name, email, position, salary, token, status)
        VALUES (?, ?, ?, ?, ?, 'PENDING')`,
       [name, email, position, salary, token]
     );
 
-    res.json({ message: "Offer created", token, link: offerLink });
+    res.json({
+      message: "Offer created successfully",
+      token,
+      link: offerLink,
+    });
   } catch (err) {
     console.error("❌ OFFER ERROR:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// ===================== DASHBOARD =====================
+// ===================== HR DASHBOARD =====================
 app.get("/hr-dashboard", isHR, async (req, res) => {
   const [rows] = await db.execute(
     "SELECT * FROM offers ORDER BY id DESC"
@@ -124,8 +137,8 @@ app.post("/offer-action", async (req, res) => {
   }
 
   const [result] = await db.execute(
-    `UPDATE offers 
-     SET status=?, token=NULL 
+    `UPDATE offers
+     SET status=?, token=NULL
      WHERE token=? AND status='PENDING'`,
     [status, token]
   );
